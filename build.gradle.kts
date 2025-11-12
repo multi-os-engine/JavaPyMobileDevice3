@@ -1,9 +1,12 @@
 plugins {
     id("java-library")
+    id("com.vanniktech.maven.publish") version "0.34.0"
 }
 
-group = "io.github.berstanio"
-version = "1.0-SNAPSHOT"
+fun isReleaseBuild() = hasProperty("RELEASE")
+
+group = property("GROUP") as String
+version = property("VERSION") as String + (if (isReleaseBuild()) "" else "-SNAPSHOT")
 
 repositories {
     mavenCentral()
@@ -23,4 +26,10 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+mavenPublishing {
+    publishToMavenCentral()
+    if (isReleaseBuild())
+        signAllPublications()
 }
