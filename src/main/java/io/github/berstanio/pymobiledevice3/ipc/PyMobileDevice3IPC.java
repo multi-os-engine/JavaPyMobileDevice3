@@ -35,7 +35,7 @@ public class PyMobileDevice3IPC implements Closeable {
 
     private static final boolean DEBUG = System.getProperty("java.pymobiledevice3.debug") != null;
 
-    public static final int PROTOCOL_VERSION = 1;
+    public static final int PROTOCOL_VERSION = 2;
 
     private final int daemonProtocolVersion;
     private final Socket socket;
@@ -62,6 +62,9 @@ public class PyMobileDevice3IPC implements Closeable {
         socket.getOutputStream().flush();
 
         daemonProtocolVersion = readVersion();
+
+        if (daemonProtocolVersion != PROTOCOL_VERSION)
+            throw new IllegalStateException("Protocol version is not supported");
 
         reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         writer = new PrintWriter(socket.getOutputStream(), true);
