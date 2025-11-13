@@ -69,6 +69,7 @@ public class PyInstallationHandler {
             throw new IllegalStateException("Installed venv at " + venv.getAbsolutePath() + ", but it's invalid?");
         }
 
+        copyFiles(directory);
         installRequirements(directory);
 
         return finalizeInstallation(directory);
