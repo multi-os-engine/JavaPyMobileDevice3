@@ -210,6 +210,44 @@ public class PyMobileDevice3IPC implements Closeable {
     }
 
     /**
+     * @param appPath The path to the app bundle, to retrieve the identifier from
+     * @return The bundle identifier. Fails exceptionally, if no bundle identifier can be found
+     */
+    public CompletableFuture<String> getBundleIdentifier(File appPath)
+    {
+        JSONObject object = new JSONObject();
+        object.put("command", "get_bundle_identifier");
+        object.put("app_path", appPath.getAbsolutePath());
+
+        return createRequest(object, (future, jsonObject) -> {
+            future.complete(jsonObject.getString("result"));
+        });
+    }
+
+    /**
+     * Gets the installed path of an app on a specific device
+     *
+     * @param info The device to query
+     * @param bundleIdentifier The bundle identifier to search for
+     * @return The on-device path or null, if the bundle is not installed
+     */
+    public CompletableFuture<String> getInstalledPath(DeviceInfo info, String bundleIdentifier)
+    {
+        JSONObject object = new JSONObject();
+        object.put("command", "get_installed_path");
+        object.put("device_id", info.getUniqueDeviceId());
+        object.put("bundle_identifier", bundleIdentifier);
+
+        return createRequest(object, (future, jsonObject) -> {
+            if (jsonObject.get("state").equals("not_installed")) {
+                future.complete(null);
+            } else {
+                future.complete(jsonObject.getString("result"));
+            }
+        });
+    }
+
+    /**
      * @param deviceInfo The device to install to.
      * @param path .app bundle path
      * @param installMode The installation mode. INSTALL/UPGRADE

@@ -13,6 +13,7 @@ import asyncio
 
 from threading import Thread
 from time import sleep
+from typing import Union
 
 import requests
 from packaging.version import Version
@@ -165,7 +166,7 @@ def get_device(id, device_id, ipc_client):
         with create_using_usbmux(device_id, autopair=False) as lockdown:
             reply = {"id": id, "state": "completed", "result": lockdown.short_info}
             write_dispatcher.write_reply(ipc_client, reply)
-    except NoDeviceConnectedError | DeviceNotFoundError:
+    except Union[NoDeviceConnectedError, DeviceNotFoundError]:
         reply = {"id": id, "state": "failed_expected"}
         write_dispatcher.write_reply(ipc_client, reply)
 
@@ -198,6 +199,27 @@ def install_app(id, lockdown_client, path, mode, ipc_client):
         write_dispatcher.write_reply(ipc_client, reply)
 
         print("Installed bundle: " + str(bundle_identifier))
+
+def get_bundle_identifier(id, path, ipc_client):
+    info_plist_path = Path(path) / "Info.plist"
+    with open(info_plist_path, 'rb') as f:
+        plist_data = plistlib.load(f)
+
+    bundle_identifier = plist_data["CFBundleIdentifier"]
+
+    reply = {"id": id, "state": "completed", "result": bundle_identifier}
+    write_dispatcher.write_reply(ipc_client, reply)
+
+def get_installed_path(id, lockdown_client, bundle_identifier, ipc_client):
+    with InstallationProxyService(lockdown=lockdown_client) as installer:
+        res = installer.lookup(options={"BundleIDs" : [bundle_identifier]})
+
+        if bundle_identifier not in res:
+            reply = {"id": id, "state": "not_installed"}
+        else:
+            reply = {"id": id, "state": "completed", "result": res[bundle_identifier]["Path"]}
+
+        write_dispatcher.write_reply(ipc_client, reply)
 
 def decode_plist(id, path, ipc_client):
     with open(path, 'rb') as f:
@@ -402,6 +424,9 @@ def handle_command(command, ipc_client):
         elif command_type == "get_version":
             get_version(id, ipc_client)
             return
+        elif command_type == "get_bundle_identifier":
+            get_bundle_identifier(id, res["app_path"], ipc_client)
+            return
 
         # Now come the device targetted functions
         device_id = res['device_id']
@@ -415,6 +440,9 @@ def handle_command(command, ipc_client):
             elif command_type == "debugserver_connect":
                 port = res['port'] if 'port' in res else 0
                 debugserver_connect(id, lockdown, port, ipc_client)
+                return
+            elif command_type == "get_installed_path":
+                get_installed_path(id, lockdown, res["bundle_identifier"], ipc_client)
                 return
 
     except Exception as e:
