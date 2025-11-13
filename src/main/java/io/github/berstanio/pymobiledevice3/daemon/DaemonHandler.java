@@ -24,7 +24,7 @@ import java.nio.file.WatchService;
 public class DaemonHandler {
     public static final String BASE_PORT_NAME = "javapymobiledevice3-" + PyMobileDevice3IPC.PROTOCOL_VERSION;
     public static final File BASE_TEMP_DIR_WIN = Paths.get(System.getProperty("user.home"), "AppData", "Local", "Temp").toFile();
-    public static final File BASE_TEMP_DIR_UNIX = new File("/tmp/" + BASE_PORT_NAME + "/");
+    public static final File BASE_TEMP_DIR_UNIX = new File("/tmp/javapymobiledevice3/");
     public static final File UNIX_PORT_PATH = new File(BASE_TEMP_DIR_UNIX, BASE_PORT_NAME + "--" + getUnixUserId() + ".port");
     public static final File WINDOWS_PORT_PATH = new File(BASE_TEMP_DIR_WIN, BASE_PORT_NAME + ".port");
 
