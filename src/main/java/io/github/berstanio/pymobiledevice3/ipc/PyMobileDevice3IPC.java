@@ -154,7 +154,9 @@ public class PyMobileDevice3IPC implements Closeable {
         return future;
     }
 
-
+    /**
+     * @return A list of currently connected devices
+     */
     public CompletableFuture<DeviceInfo[]> listDevices() {
         JSONObject object = new JSONObject();
         object.put("command", "list_devices");
@@ -172,6 +174,9 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * @return A list of UDID of currently connected devices. Does not involve pairing.
+     */
     public CompletableFuture<String[]> listDevicesUDID() {
         JSONObject object = new JSONObject();
         object.put("command", "list_devices_udid");
@@ -187,6 +192,9 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * @return The first available device
+     */
     public CompletableFuture<DeviceInfo> getDevice()
     {
         return getDevice(null);
@@ -213,6 +221,8 @@ public class PyMobileDevice3IPC implements Closeable {
     }
 
     /**
+     * Gets the bundle identifier for an app path
+     *
      * @param appPath The path to the app bundle, to retrieve the identifier from
      * @return The bundle identifier. Fails exceptionally, if no bundle identifier can be found
      */
@@ -251,6 +261,8 @@ public class PyMobileDevice3IPC implements Closeable {
     }
 
     /**
+     * Installs an app onto the device
+     *
      * @param deviceInfo The device to install to.
      * @param path .app bundle path
      * @param installMode The installation mode. INSTALL/UPGRADE
@@ -279,6 +291,11 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Decodes a plist into an JSONObject
+     * @param path The path to a plist
+     * @return The decoded plist
+     */
     public CompletableFuture<JSONObject> decodePList(File path) {
         if (!path.exists() || path.isDirectory())
             throw new IllegalArgumentException("Path " + path.getAbsolutePath() + " does not point to file");
@@ -290,6 +307,11 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Auto mount developer disk image for the device
+     *
+     * @param info The device to mount the developer disk image
+     */
     public CompletableFuture<Void> autoMountImage(DeviceInfo info) {
         JSONObject object = new JSONObject();
         object.put("command", "auto_mount_image");
@@ -299,6 +321,13 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Connect to the debugserver on the device. Needs tunneld running.
+     *
+     * @param info The device to connect to
+     * @param port The local port to open. 0 for arbitrary port
+     * @return The info about the connection
+     */
     public CompletableFuture<DebugServerConnection> debugServerConnect(DeviceInfo info, int port) {
         JSONObject object = new JSONObject();
         object.put("command", "debugserver_connect");
@@ -314,6 +343,11 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Closes a debug server connection.
+     *
+     * @param connection The connection to close
+     */
     public CompletableFuture<Void> debugServerClose(DebugServerConnection connection) {
         JSONObject object = new JSONObject();
         object.put("command", "debugserver_close");
@@ -323,6 +357,14 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Opens a port forwarding to the target device.
+     *
+     * @param info The device to forward to
+     * @param remotePort The port to open on the device
+     * @param localPort The local port to forward. 0 for arbitrary port
+     * @return The information about the created forwarding
+     */
     public CompletableFuture<USBMuxForwarder> usbMuxForwarderCreate(DeviceInfo info, int remotePort, int localPort) {
         JSONObject object = new JSONObject();
         object.put("command", "usbmux_forwarder_open");
@@ -336,6 +378,11 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Closes a port forwarder.
+     *
+     * @param connection The connection to close
+     */
     public CompletableFuture<Void> usbMuxForwarderClose(USBMuxForwarder connection) {
         JSONObject object = new JSONObject();
         object.put("command", "usbmux_forwarder_close");
@@ -345,6 +392,9 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Stops the daemon. Don't use this, it's for debugging purposes.
+     */
     public CompletableFuture<Void> forceKillDaemon() {
         JSONObject object = new JSONObject();
         object.put("id", commandId.getAndIncrement());
@@ -354,6 +404,11 @@ public class PyMobileDevice3IPC implements Closeable {
         return CompletableFuture.completedFuture(null);
     }
 
+    /**
+     * Checks whether the tunneld service is running, needed for debugserver connection
+     *
+     * @return whether the tunneld service is running
+     */
     public CompletableFuture<Boolean> isTunneldRunning() {
         JSONObject object = new JSONObject();
         object.put("command", "is_tunneld_running");
@@ -362,6 +417,9 @@ public class PyMobileDevice3IPC implements Closeable {
         });
     }
 
+    /**
+     * Launches the tunneld service. Will request elevated priviliges on macos.
+     */
     public CompletableFuture<Void> ensureTunneldRunning() {
         JSONObject object = new JSONObject();
         object.put("command", "ensure_tunneld_running");
