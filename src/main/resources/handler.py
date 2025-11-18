@@ -11,7 +11,6 @@ import traceback
 from pathlib import Path
 import asyncio
 
-from threading import Thread
 from time import sleep
 from typing import Union
 
@@ -23,7 +22,7 @@ from pymobiledevice3.exceptions import *
 from pymobiledevice3.remote.common import TunnelProtocol
 from pymobiledevice3.services.installation_proxy import InstallationProxyService
 from pymobiledevice3.services.mobile_image_mounter import auto_mount
-from pymobiledevice3.tcp_forwarder import LockdownTcpForwarder, UsbmuxTcpForwarder
+from pymobiledevice3.tcp_forwarder import LockdownTcpForwarder, UsbmuxTcpForwarder, TcpForwarderBase
 from pymobiledevice3.tunneld.api import get_tunneld_device_by_udid, TUNNELD_DEFAULT_ADDRESS
 from pymobiledevice3.tunneld.server import TunneldRunner
 from pymobiledevice3.usbmux import *
@@ -32,6 +31,24 @@ import plistlib
 
 VERSION: int
 
+class ConnectionResource:
+    def close(self):
+        raise NotImplementedError()
+
+class TcpForwarderResource(ConnectionResource):
+
+    def __init__(self, forwarder: TcpForwarderBase, thread):
+        self.forwarder = forwarder
+        self.thread = thread
+
+    def close(self):
+        self.forwarder.stop()
+        self.thread.join(5)
+
+        if self.thread.is_alive():
+            print(f"Joining forwarder thread {self.forwarder.src_port} timed out")
+
+
 class IPCClient:
     def __init__(self, sock, address, version):
         self.sock = sock
@@ -39,11 +56,27 @@ class IPCClient:
         self.write_file = sock.makefile('w')
         self.address = address
         self.version = version
+        self.active_forwarder: dict[int, TcpForwarderResource] = {}
 
     def close(self):
+        for resource in self.active_forwarder.values():
+            resource.close()
+        self.active_forwarder.clear()
+
         self.sock.close()
         self.read_file.close()
         self.write_file.close()
+
+    def add_forwarder(self, local_port: int, forwarder: TcpForwarderResource):
+        if local_port in self.active_forwarder:
+            raise ValueError(f"{local_port} already has an open connection: {self.active_forwarder[local_port]}")
+        self.active_forwarder[local_port] = forwarder
+
+    def close_forwarder(self, local_port: int):
+        if local_port not in self.active_forwarder:
+            raise ValueError(f"Port {local_port} is not open")
+        forwarder = self.active_forwarder.pop(local_port)
+        forwarder.close()
 
 class WriteDispatcher:
     def __init__(self):
@@ -133,9 +166,6 @@ class ReadDispatcher:
     def shutdown(self):
         self.shutdown_event.set()
 
-
-active_debug_server: dict[int, tuple[LockdownTcpForwarder, Thread]] = {}
-active_usbmux_forwarder: dict[int, tuple[UsbmuxTcpForwarder, Thread]] = {}
 write_dispatcher = WriteDispatcher()
 read_dispatcher = ReadDispatcher()
 
@@ -317,7 +347,8 @@ def debugserver_connect(id, lockdown, port, ipc_client):
     listen_event.wait()
     selected_port = forwarder.server_socket.getsockname()[1]
 
-    active_debug_server[selected_port] = (forwarder, thread)
+    resource = TcpForwarderResource(forwarder, thread)
+    ipc_client.add_forwarder(selected_port, resource)
 
     reply = {"id": id, "state": "completed", "result": {
         "host": "127.0.0.1",
@@ -327,13 +358,7 @@ def debugserver_connect(id, lockdown, port, ipc_client):
 
 
 def debugserver_close(id, port, ipc_client):
-    forwarder, thread = active_debug_server.pop(port)
-    forwarder.stop()
-
-    thread.join(5)
-
-    if thread.is_alive():
-        print(f"Joining debugserver thread {port} timed out")
+    ipc_client.close_forwarder(port)
 
     reply = {"id": id, "state": "completed"}
     write_dispatcher.write_reply(ipc_client, reply)
@@ -353,7 +378,8 @@ def usbmux_forward_open(id, udid, remote_port, local_port, ipc_client):
     listen_event.wait()
     selected_port = forwarder.server_socket.getsockname()[1]
 
-    active_usbmux_forwarder[selected_port] = (forwarder, thread)
+    resource = TcpForwarderResource(forwarder, thread)
+    ipc_client.add_forwarder(selected_port, resource)
 
     reply = {"id": id, "state": "completed", "result": {
         "host": "127.0.0.1",
@@ -364,13 +390,7 @@ def usbmux_forward_open(id, udid, remote_port, local_port, ipc_client):
 
 
 def usbmux_forward_close(id, local_port, ipc_client):
-    forwarder, thread = active_usbmux_forwarder.pop(local_port)
-    forwarder.stop()
-
-    thread.join(5)
-
-    if thread.is_alive():
-        print(f"Joining usbmux thread {local_port} timed out")
+    ipc_client.close_forwarder(local_port)
 
     reply = {"id": id, "state": "completed"}
     write_dispatcher.write_reply(ipc_client, reply)
@@ -438,8 +458,7 @@ def handle_command(command, ipc_client):
                 auto_mount_image(id, lockdown, ipc_client)
                 return
             elif command_type == "debugserver_connect":
-                port = res['port'] if 'port' in res else 0
-                debugserver_connect(id, lockdown, port, ipc_client)
+                debugserver_connect(id, lockdown, res['port'], ipc_client)
                 return
             elif command_type == "get_installed_path":
                 get_installed_path(id, lockdown, res["bundle_identifier"], ipc_client)
