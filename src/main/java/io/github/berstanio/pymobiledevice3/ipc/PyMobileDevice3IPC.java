@@ -86,14 +86,8 @@ public class PyMobileDevice3IPC implements Closeable {
             while (true) {
                 try {
                     String line = reader.readLine();
-                    if (line == null) {
-                        for (CompletableFuture<?> future : futures.values()) {
-                            future.completeExceptionally(new PyMobileDevice3Error("Python process died"));
-                        }
-
-                        close();
-                        return;
-                    }
+                    if (line == null)
+                        throw new IOException("End of stream");
                     JSONObject jsonObject = new JSONObject(line);
                     if (jsonObject.get("state").equals("failed")) {
                         String request = jsonObject.getString("request");
@@ -110,12 +104,21 @@ public class PyMobileDevice3IPC implements Closeable {
 
                     handler.accept(jsonObject);
                 } catch (IOException e) {
+                    closePythonProcessDied();
                     break;
                 }
             }
         }, "PyMobileDevice3IPC-ReadDispatcher");
         readThread.setDaemon(true);
         readThread.start();
+    }
+
+    private void closePythonProcessDied()
+    {
+        for (CompletableFuture<?> future : futures.values())
+            future.completeExceptionally(new PyMobileDevice3Error("Python process died"));
+
+        close();
     }
 
     private int readVersion() throws IOException {
@@ -455,21 +458,25 @@ public class PyMobileDevice3IPC implements Closeable {
 
     @Override
     public void close() {
+        if (destroyed)
+            return;
+
+        tryClose(writeThread::interrupt);
+        tryClose(writeThread::join);
+        tryClose(socket);
+        tryClose(commandResults::clear);
+        tryClose(writeQueue::clear);
+        tryClose(readThread::interrupt);
+        tryClose(readThread::join);
+        tryClose(() -> futures.values().forEach(completableFuture -> tryClose(() -> completableFuture.cancel(true))));
+        tryClose(futures::clear);
+
+        destroyed = true;
+    }
+
+    private void tryClose(AutoCloseable operation) {
         try {
-            writeThread.interrupt();
-            writeThread.join();
-
-            socket.close();
-            commandResults.clear();
-            writeQueue.clear();
-
-            readThread.interrupt();
-            readThread.join();
-
-            futures.values().forEach(completableFuture -> completableFuture.cancel(true));
-            futures.clear();
-
-            destroyed = true;
-        } catch (IOException | InterruptedException ignored) {}
+            operation.close();
+        } catch (Exception ignored) {}
     }
 }
