@@ -1,1 +1,1 @@
-rootProject.name = "JavaPyMobileDevice3"
+rootProject.name = "javapymobiledevice3"
