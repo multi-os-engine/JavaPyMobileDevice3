@@ -1,7 +1,7 @@
 ## Overview
 
 This is a java interop library for [pymobiledevice3](https://github.com/doronz88/pymobiledevice3).  
-It uses an IPC protocol, to communicate with a python3 daemon running in the background.  
+It uses an [IPC protocol](https://github.com/multi-os-engine/IPCPyMobileDevice3), to communicate with a python3 daemon running in the background.  
 All request/responses are implemented asyncronous.
 
 ## How to use

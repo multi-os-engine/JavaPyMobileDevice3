@@ -2,10 +2,13 @@ package io.github.berstanio.pymobiledevice3.venv;
 
 import com.badlogic.gdx.jnigen.commons.HostDetection;
 import com.badlogic.gdx.jnigen.commons.Os;
+import io.github.berstanio.pymobiledevice3.ipc.PyMobileDevice3IPC;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,16 +22,56 @@ public class PyInstallationHandler {
     private static final String HANDLER_NAME = "handler.py";
     private static final String REQUIREMENTS_NAME = "requirements.txt";
     private static final String PYTHON_PATH = "bin/python3";
+    private static final String BASE_URL = "https://raw.githubusercontent.com/multi-os-engine/IPCPyMobileDevice3/refs/tags/v" + PyMobileDevice3IPC.PROTOCOL_VERSION;
+    private static final String HANDLER_DEFAULT_URL = BASE_URL + "/" + HANDLER_NAME;
+    private static final String REQUIREMENTS_DEFAULT_URL = BASE_URL + "/" + REQUIREMENTS_NAME;
 
     public static PyInstallation install(File directory) {
+        try {
+            return PyInstallationHandler.install(directory, new URL(HANDLER_DEFAULT_URL), new URL(REQUIREMENTS_DEFAULT_URL));
+        } catch (MalformedURLException e) {
+            throw new RuntimeException("Failed to resolve IPC URL", e);
+        }
+    }
+
+    public static PyInstallation install(File directory, File handlerFile, File requirementsFile) {
         directory.mkdirs();
         if (!directory.exists() || !directory.isDirectory())
             throw new IllegalArgumentException(directory.getAbsolutePath() + " does not exist or is not a directory");
+
+        try {
+            Files.copy(handlerFile.toPath(), directory.toPath().resolve(HANDLER_NAME), StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(requirementsFile.toPath(), directory.toPath().resolve(REQUIREMENTS_NAME), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to copy files", e);
+        }
+
+        return installInternal(directory);
+    }
+
+    public static PyInstallation install(File directory, URL handlerFile, URL requirementsFile) {
+        directory.mkdirs();
+        if (!directory.exists() || !directory.isDirectory())
+            throw new IllegalArgumentException(directory.getAbsolutePath() + " does not exist or is not a directory");
+
+        try {
+            try (InputStream in = handlerFile.openStream()) {
+                Files.copy(in, directory.toPath().resolve(HANDLER_NAME), StandardCopyOption.REPLACE_EXISTING);
+            }
+            try (InputStream in = requirementsFile.openStream()) {
+                Files.copy(in, directory.toPath().resolve(REQUIREMENTS_NAME), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to download files", e);
+        }
+
+        return installInternal(directory);
+    }
+
+    private static PyInstallation installInternal(File directory) {
         File venv = new File(directory, VENV_NAME);
         if (venv.exists()) {
             if (checkVEnv(venv)) {
-                // Env is valid. Copy files again, just in case
-                copyFiles(directory);
                 installRequirements(directory);
 
                 return finalizeInstallation(directory);
@@ -69,7 +112,6 @@ public class PyInstallationHandler {
             throw new IllegalStateException("Installed venv at " + venv.getAbsolutePath() + ", but it's invalid?");
         }
 
-        copyFiles(directory);
         installRequirements(directory);
 
         return finalizeInstallation(directory);
@@ -102,24 +144,6 @@ public class PyInstallationHandler {
 
             return tempDir.toFile();
         } catch (IOException | InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private static void copyFiles(File directory) {
-        try {
-            try (InputStream in = PyInstallationHandler.class.getResourceAsStream("/" + HANDLER_NAME)) {
-                if (in == null)
-                    throw new IllegalStateException(HANDLER_NAME + " not found in resources");
-                Files.copy(in, directory.toPath().resolve(HANDLER_NAME), StandardCopyOption.REPLACE_EXISTING);
-            }
-
-            try (InputStream in = PyInstallationHandler.class.getResourceAsStream("/" + REQUIREMENTS_NAME)) {
-                if (in == null)
-                    throw new IllegalStateException(REQUIREMENTS_NAME + " not found in resources");
-                Files.copy(in, directory.toPath().resolve(REQUIREMENTS_NAME), StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }

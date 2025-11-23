@@ -18,11 +18,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
-import java.net.SocketTimeoutException;
-import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,7 +30,7 @@ public class PyMobileDevice3IPC implements Closeable {
 
     private static final boolean DEBUG = System.getProperty("java.pymobiledevice3.debug") != null;
 
-    public static final int PROTOCOL_VERSION = 2;
+    public static final int PROTOCOL_VERSION = 3;
 
     private final int daemonProtocolVersion;
     private final Socket socket;
@@ -214,7 +209,7 @@ public class PyMobileDevice3IPC implements Closeable {
             object.put("device_id", uuid);
 
         return createRequest(object, (future, jsonObject) -> {
-            if (jsonObject.get("state").equals("failed_expected")) {
+            if (jsonObject.get("state").equals("failed_no_device")) {
                 future.complete(null);
             } else {
                 DeviceInfo deviceInfo = DeviceInfo.fromJson(jsonObject.getJSONObject("result"));
@@ -255,7 +250,7 @@ public class PyMobileDevice3IPC implements Closeable {
         object.put("bundle_identifier", bundleIdentifier);
 
         return createRequest(object, (future, jsonObject) -> {
-            if (jsonObject.get("state").equals("not_installed")) {
+            if (jsonObject.get("state").equals("failed_not_installed")) {
                 future.complete(null);
             } else {
                 future.complete(jsonObject.getString("result"));
@@ -337,7 +332,7 @@ public class PyMobileDevice3IPC implements Closeable {
         object.put("device_id", info.getUniqueDeviceId());
         object.put("port", port);
         return createRequest(object, (future, jsonObject) -> {
-            if (jsonObject.getString("state").equals("failed_tunneld")) {
+            if (jsonObject.getString("state").equals("failed_no_tunneld")) {
                 future.completeExceptionally(new PyMobileDevice3Error("No tunneld instance for device " + info.getUniqueDeviceId() + " found."));
                 return;
             }

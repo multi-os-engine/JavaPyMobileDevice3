@@ -90,8 +90,7 @@ public class DaemonHandler {
         File portFile = getPortFile();
         Files.deleteIfExists(portFile.toPath());
         ProcessBuilder pb = new ProcessBuilder()
-                .command(installation.getPythonExecutable().getAbsolutePath() , "-u", installation.getHandler().getAbsolutePath(), String.valueOf(
-                        PyMobileDevice3IPC.PROTOCOL_VERSION), portFile.getAbsolutePath());
+                .command(installation.getPythonExecutable().getAbsolutePath() , "-u", installation.getHandler().getAbsolutePath(), portFile.getAbsolutePath());
 
         pb.redirectErrorStream(true);
         pb.redirectOutput(getLogFile());
