@@ -3,6 +3,7 @@ package io.github.berstanio.pymobiledevice3.venv;
 import com.badlogic.gdx.jnigen.commons.HostDetection;
 import com.badlogic.gdx.jnigen.commons.Os;
 import io.github.berstanio.pymobiledevice3.ipc.PyMobileDevice3IPC;
+import org.semver4j.Semver;
 
 import java.io.File;
 import java.io.IOException;
@@ -18,7 +19,7 @@ public class PyInstallationHandler {
 
     private static final boolean DEBUG = System.getProperty("java.pymobiledevice3.debug") != null;
 
-    private static final String VENV_NAME = ".venv";
+    private static final String VENV_NAME = ".venv-" + PyMobileDevice3IPC.PROTOCOL_VERSION;
     private static final String HANDLER_NAME = "handler.py";
     private static final String REQUIREMENTS_NAME = "requirements.txt";
     private static final String PYTHON_PATH = "bin/python3";
@@ -34,14 +35,14 @@ public class PyInstallationHandler {
         }
     }
 
-    public static PyInstallation install(File directory, File handlerFile, File requirementsFile) {
+    public static PyInstallation install(File directory, File ipcBaseDirectory) {
         directory.mkdirs();
         if (!directory.exists() || !directory.isDirectory())
             throw new IllegalArgumentException(directory.getAbsolutePath() + " does not exist or is not a directory");
 
         try {
-            Files.copy(handlerFile.toPath(), directory.toPath().resolve(HANDLER_NAME), StandardCopyOption.REPLACE_EXISTING);
-            Files.copy(requirementsFile.toPath(), directory.toPath().resolve(REQUIREMENTS_NAME), StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(ipcBaseDirectory.toPath().resolve(HANDLER_NAME), directory.toPath().resolve(HANDLER_NAME), StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(ipcBaseDirectory.toPath().resolve(REQUIREMENTS_NAME), directory.toPath().resolve(REQUIREMENTS_NAME), StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             throw new RuntimeException("Failed to copy files", e);
         }
@@ -76,20 +77,15 @@ public class PyInstallationHandler {
 
                 return finalizeInstallation(directory);
             }
-            if (!venv.delete())
+            if (!deleteRecursively(venv))
                 throw new IllegalStateException(venv.getAbsolutePath() + " exists, is invalid and cannot be deleted");
         }
 
         // We have no env. Create it
-        try {
-            int exitCode = new ProcessBuilder("python3", "--version").start().waitFor();
-            if (exitCode != 0)
-                throw new IllegalStateException("Python3 is not installed or on the path");
-        } catch (InterruptedException | IOException e) {
-            throw new IllegalStateException("Python3 is not installed or on the path", e);
-        }
+        if (!checkPythonVersion(resolveCommand("python3")))
+            throw new IllegalStateException("Unable to find python 3.10.0+ installation");
 
-        ProcessBuilder pb = new ProcessBuilder("python3", "-m", "venv", venv.getAbsolutePath());
+        ProcessBuilder pb = new ProcessBuilder(resolveCommand("python3"), "-m", "venv", venv.getAbsolutePath());
 
         if (DEBUG) {
             pb.inheritIO();
@@ -154,15 +150,7 @@ public class PyInstallationHandler {
             return false;
         }
 
-        try {
-            int exitCode = new ProcessBuilder(pythonExecutable.getAbsolutePath(), "--version").start().waitFor();
-            if (exitCode != 0)
-                return false;
-        } catch (InterruptedException | IOException e) {
-            return false;
-        }
-
-        return true;
+        return checkPythonVersion(pythonExecutable.getAbsolutePath());
     }
 
     private static void installRequirements(File directory) {
@@ -182,6 +170,74 @@ public class PyInstallationHandler {
                 throw new IllegalStateException("Failed to install dependencies " + requirements.getAbsolutePath() + ": " + new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
         } catch (InterruptedException | IOException e) {
             throw new IllegalStateException("Failed to install dependencies " + requirements.getAbsolutePath(), e);
+        }
+    }
+
+    private static boolean checkPythonVersion(String executable)
+    {
+        try {
+            Process process = new ProcessBuilder(executable, "--version")
+                    .redirectErrorStream(true)
+                    .start();
+
+            String output = new String(process.getInputStream().readAllBytes()).trim();
+            int exitCode = process.waitFor();
+
+            if (exitCode != 0)
+                return false;
+
+            String versionStr = output.replace("Python ", "");
+            Semver installed = new Semver(versionStr);
+
+            if (installed.isLowerThan("3.10.0"))
+                return false;
+        } catch (InterruptedException | IOException e) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static boolean deleteRecursively(File file) {
+        if (file.isDirectory()) {
+            for (File child : file.listFiles()) {
+                deleteRecursively(child);
+            }
+        }
+        return file.delete();
+    }
+
+    private static String resolveCommand(String command) {
+        try {
+            String os = System.getProperty("os.name").toLowerCase();
+            ProcessBuilder pb;
+            if (os.contains("win")) {
+                pb = new ProcessBuilder("where", command);
+            } else {
+                String shell = System.getenv("SHELL");
+                if (shell == null || shell.isEmpty()) {
+                    shell = "/bin/sh";
+                }
+                pb = new ProcessBuilder(shell, "-l", "-c", "which " + command);
+            }
+
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String result = new String(p.getInputStream().readAllBytes()).trim();
+
+            // 'where' on Windows can return multiple lines, take the first
+            int newline = result.indexOf('\n');
+            if (newline > 0) {
+                result = result.substring(0, newline).trim();
+            }
+
+            if (result.isEmpty()) {
+                throw new IOException("Command not found: " + command);
+            }
+
+            return result;
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to resolve command: " + command, e);
         }
     }
 }
