@@ -30,7 +30,7 @@ public class PyMobileDevice3IPC implements Closeable {
 
     private static final boolean DEBUG = System.getProperty("java.pymobiledevice3.debug") != null;
 
-    public static final int PROTOCOL_VERSION = 4;
+    public static final int PROTOCOL_VERSION = 5;
 
     private final int daemonProtocolVersion;
     private final Socket socket;
