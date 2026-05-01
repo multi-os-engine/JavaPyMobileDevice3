@@ -83,7 +83,7 @@ public class PyInstallationHandler {
 
         // We have no env. Create it
         if (!checkPythonVersion(resolveCommand("python3")))
-            throw new IllegalStateException("Unable to find python 3.10.0+ installation");
+            throw new IllegalStateException("Unable to find python 3.9.0+ installation");
 
         ProcessBuilder pb = new ProcessBuilder(resolveCommand("python3"), "-m", "venv", venv.getAbsolutePath());
 
@@ -189,7 +189,7 @@ public class PyInstallationHandler {
             String versionStr = output.replace("Python ", "");
             Semver installed = new Semver(versionStr);
 
-            if (installed.isLowerThan("3.10.0"))
+            if (installed.isLowerThan("3.9.0"))
                 return false;
         } catch (InterruptedException | IOException e) {
             return false;
