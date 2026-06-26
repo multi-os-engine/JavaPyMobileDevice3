@@ -30,7 +30,7 @@ public class PyMobileDevice3IPC implements Closeable {
 
     private static final boolean DEBUG = System.getProperty("java.pymobiledevice3.debug") != null;
 
-    public static final int PROTOCOL_VERSION = 7;
+    public static final int PROTOCOL_VERSION = 8;
 
     private final int daemonProtocolVersion;
     private final Socket socket;
@@ -320,7 +320,7 @@ public class PyMobileDevice3IPC implements Closeable {
     }
 
     /**
-     * Connect to the debugserver on the device. Needs tunneld running.
+     * Connect to the debugserver on the device. For iOS 17+ the developer disk image must be mounted first via {@link #autoMountImage(DeviceInfo)}.
      *
      * @param info The device to connect to
      * @param port The local port to open. 0 for arbitrary port
@@ -332,10 +332,6 @@ public class PyMobileDevice3IPC implements Closeable {
         object.put("device_id", info.getUniqueDeviceId());
         object.put("port", port);
         return createRequest(object, (future, jsonObject) -> {
-            if (jsonObject.getString("state").equals("failed_no_tunneld")) {
-                future.completeExceptionally(new PyMobileDevice3Error("No tunneld instance for device " + info.getUniqueDeviceId() + " found."));
-                return;
-            }
             JSONObject result = jsonObject.getJSONObject("result");
             future.complete(new DebugServerConnection(info, result.getString("host"), result.getInt("port")));
         });
@@ -402,30 +398,6 @@ public class PyMobileDevice3IPC implements Closeable {
         return CompletableFuture.completedFuture(null);
     }
 
-    /**
-     * Checks whether the tunneld service is running, needed for debugserver connection
-     *
-     * @return whether the tunneld service is running
-     */
-    public CompletableFuture<Boolean> isTunneldRunning() {
-        JSONObject object = new JSONObject();
-        object.put("command", "is_tunneld_running");
-        return createRequest(object, (future, jsonObject) -> {
-            future.complete(jsonObject.getBoolean("result"));
-        });
-    }
-
-    /**
-     * Launches the tunneld service. Will request elevated priviliges on macos.
-     */
-    public CompletableFuture<Void> ensureTunneldRunning() {
-        JSONObject object = new JSONObject();
-        object.put("command", "ensure_tunneld_running");
-        return createRequest(object, (future, jsonObject) -> {
-            future.complete(null);
-        });
-    }
-
     public int getDaemonProtocolVersion() {
         return daemonProtocolVersion;
     }
@@ -436,8 +408,6 @@ public class PyMobileDevice3IPC implements Closeable {
             DaemonHandler.startDaemon(installation);
         }
         try (PyMobileDevice3IPC ipc = new PyMobileDevice3IPC()) {
-            ipc.ensureTunneldRunning().join();
-
             DeviceInfo info = ipc.getDevice(null).join();
             DebugServerConnection connection = ipc.debugServerConnect(info, 0).join();
 

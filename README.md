@@ -9,7 +9,8 @@ All request/responses are implemented asyncronous.
 ### The Daemon
 - Check if the Daemon is currently running with `DaemonHandler.isDaemonRunning()`.
 - If not, launch a new instance.
-  - Create a python env fist `PyInstallation installation = PyInstallationHandler.install(new File(</path/to/install/dir>));`
+  - Provision a self-contained python interpreter first `PyInstallation installation = PyInstallationHandler.install(new File(</path/to/install/dir>));`
+    - This downloads a pinned, arch-matched [python-build-standalone](https://github.com/astral-sh/python-build-standalone) interpreter, installs the requirements directly into it, and writes a `.ready` marker.
     - You don't need to check for directory existence beforehand, the code is safe to use on every run.
     - You should version the pathes using `PyMobileDevice3IPC.PROTOCOL_VERSION`, to avoid version collisions.  
   - Then launch the daemon with `DaemonHandler.startDaemon(installation);`
@@ -17,9 +18,7 @@ All request/responses are implemented asyncronous.
 
 
 ### The IPC
-You can now use the `PyMobileDevice3IPC` created. All IPC methods return a `CompletableFuture` and are non-blocking.  
-The `DebugServer` methods require tunneld to be running. You can check the status with `PyMobileDevice3IPC#isTunneldRunning`.  
-You can launch tunneld with `PyMobileDevice3IPC#ensureTunneldRunning`, however this will ask for elevated priviliges on macos.
+You can now use the `PyMobileDevice3IPC` created. All IPC methods return a `CompletableFuture` and are non-blocking.
 
 ## Debugging
 If you run into issues, you can: 
