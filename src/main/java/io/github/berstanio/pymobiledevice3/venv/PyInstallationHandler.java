@@ -8,11 +8,17 @@ import io.github.berstanio.pymobiledevice3.ipc.PyMobileDevice3IPC;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Reader;
+import java.io.Writer;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.Properties;
 
 public class PyInstallationHandler {
 
@@ -20,8 +26,11 @@ public class PyInstallationHandler {
 
     private static final String HANDLER_NAME = "handler.py";
     private static final String REQUIREMENTS_NAME = "requirements.txt";
-    private static final String READY_MARKER = ".ready";
     private static final String PYTHON_DIR = "python";
+
+    private static final String READY_MARKER = ".ready";
+    private static final String READY_PYTHON = "python";
+    private static final String READY_REQUIREMENTS = "requirements";
 
     private static final String PBS_RELEASE = "20260623";
     private static final String PBS_PYTHON_VERSION = "3.14.6";
@@ -41,68 +50,100 @@ public class PyInstallationHandler {
     }
 
     public static PyInstallation install(File directory, File ipcBaseDirectory) {
-        if (isReady(directory))
-            return toInstallation(directory);
-
-        prepareDirectory(directory);
-
         try {
-            Files.copy(ipcBaseDirectory.toPath().resolve(HANDLER_NAME), directory.toPath().resolve(HANDLER_NAME), StandardCopyOption.REPLACE_EXISTING);
-            Files.copy(ipcBaseDirectory.toPath().resolve(REQUIREMENTS_NAME), directory.toPath().resolve(REQUIREMENTS_NAME), StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to copy files", e);
+            return install(directory,
+                    new File(ipcBaseDirectory, HANDLER_NAME).toURI().toURL(),
+                    new File(ipcBaseDirectory, REQUIREMENTS_NAME).toURI().toURL());
+        } catch (MalformedURLException e) {
+            throw new RuntimeException("Failed to resolve IPC URL", e);
         }
-
-        return installInternal(directory);
     }
 
     public static PyInstallation install(File directory, URL handlerFile, URL requirementsFile) {
-        if (isReady(directory))
-            return toInstallation(directory);
-
         prepareDirectory(directory);
-
-        try {
-            try (InputStream in = handlerFile.openStream()) {
-                Files.copy(in, directory.toPath().resolve(HANDLER_NAME), StandardCopyOption.REPLACE_EXISTING);
-            }
-            try (InputStream in = requirementsFile.openStream()) {
-                Files.copy(in, directory.toPath().resolve(REQUIREMENTS_NAME), StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to download files", e);
-        }
-
+        refresh(new File(directory, HANDLER_NAME), handlerFile);
+        refresh(new File(directory, REQUIREMENTS_NAME), requirementsFile);
         return installInternal(directory);
     }
 
+    private static void refresh(File target, URL source) {
+        try (InputStream in = source.openStream()) {
+            Files.copy(in, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            // Source unreachable (e.g. offline restart): reuse the previously fetched copy.
+            if (!target.exists())
+                throw new RuntimeException("Failed to fetch " + target.getName(), e);
+        }
+    }
+
     private static void prepareDirectory(File directory) {
-        deleteRecursively(directory);
         directory.mkdirs();
         if (!directory.exists() || !directory.isDirectory())
             throw new IllegalArgumentException(directory.getAbsolutePath() + " does not exist or is not a directory");
     }
 
-    private static boolean isReady(File directory) {
-        return new File(directory, READY_MARKER).exists() && pythonExecutable(directory).exists();
-    }
-
     private static PyInstallation installInternal(File directory) {
-        File pythonHome = new File(directory, PYTHON_DIR);
-        if (pythonHome.exists() && !deleteRecursively(pythonHome))
-            throw new IllegalStateException("Failed to remove stale interpreter at " + pythonHome.getAbsolutePath());
+        String urlHash = hash(standaloneUrl().getBytes(StandardCharsets.UTF_8));
+        String reqHash = hash(readBytes(new File(directory, REQUIREMENTS_NAME)));
 
-        downloadAndExtractInterpreter(directory);
-        installRequirements(directory);
+        Properties ready = loadReady(directory);
+        boolean interpreterReady = urlHash.equals(ready.getProperty(READY_PYTHON))
+                && pythonExecutable(directory).exists();
 
-        try {
-            Files.deleteIfExists(new File(directory, READY_MARKER).toPath());
-            Files.createFile(new File(directory, READY_MARKER).toPath());
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to write ready marker in " + directory.getAbsolutePath(), e);
+        if (!interpreterReady) {
+            File pythonHome = new File(directory, PYTHON_DIR);
+            if (pythonHome.exists() && !deleteRecursively(pythonHome))
+                throw new IllegalStateException("Failed to remove stale interpreter at " + pythonHome.getAbsolutePath());
+            downloadAndExtractInterpreter(directory);
+            installRequirements(directory);
+
+            ready.setProperty(READY_PYTHON, urlHash);
+            ready.setProperty(READY_REQUIREMENTS, reqHash);
+            storeReady(directory, ready);
+        } else if (!reqHash.equals(ready.getProperty(READY_REQUIREMENTS))) {
+            installRequirements(directory);
+            ready.setProperty(READY_REQUIREMENTS, reqHash);
+            storeReady(directory, ready);
         }
 
         return toInstallation(directory);
+    }
+
+    private static Properties loadReady(File directory) {
+        Properties props = new Properties();
+        File f = new File(directory, READY_MARKER);
+        if (f.exists()) {
+            try (Reader r = Files.newBufferedReader(f.toPath(), StandardCharsets.UTF_8)) {
+                props.load(r);
+            } catch (IOException e) {
+                return new Properties();
+            }
+        }
+        return props;
+    }
+
+    private static void storeReady(File directory, Properties props) {
+        try (Writer w = Files.newBufferedWriter(new File(directory, READY_MARKER).toPath(), StandardCharsets.UTF_8)) {
+            props.store(w, null);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to write ready marker in " + directory.getAbsolutePath(), e);
+        }
+    }
+
+    private static String hash(byte[] bytes) {
+        try {
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static byte[] readBytes(File f) {
+        try {
+            return Files.readAllBytes(f.toPath());
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read " + f.getAbsolutePath(), e);
+        }
     }
 
     private static void downloadAndExtractInterpreter(File directory) {
